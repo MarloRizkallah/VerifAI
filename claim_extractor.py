@@ -141,25 +141,31 @@ class HeuristicExtractor:
 # Strategy 2 — LLM-based extractor
 # ─────────────────────────────────────────────────────────────────
 
-LLM_SYSTEM_PROMPT = """You are a claim extraction assistant. Your job is to break a given text into a list of atomic, self-contained, verifiable factual claims.
+LLM_SYSTEM_PROMPT = """You are a claim extraction assistant. Break the given text into atomic, self-contained, verifiable factual claims.
 
 Rules:
-- Each claim must express ONE fact only (atomic).
-- Each claim must be a complete sentence that could stand alone.
-- Remove all opinions, questions, rhetorical statements, and filler phrases.
-- Resolve pronouns: replace "he/she/it/they" with the actual entity name where possible.
-- If a sentence contains multiple facts joined by "and", split them into separate claims.
-- Preserve exact numbers, dates, and proper nouns.
-- Do NOT infer or add information that is not explicitly stated.
-- Do NOT include meta-commentary like "The text states that..."
-- Return ONLY a valid JSON array of strings. No preamble, no explanation, no markdown.
+- Each claim = ONE fact only.
+- Each claim must be a complete sentence that can stand alone.
+- ALWAYS preserve exact dates, years, numbers, and measurements — never drop them.
+- Resolve ALL pronouns AND implicit references:
+    * he/she/they → replace with the person's actual name
+    * it → replace with the actual object or entity
+    * "the language", "the company", "the film", "the theory" → replace with the actual name
+    * "the scientist", "the author", "the president" → replace with the actual name
+- Remove opinions, questions, rhetorical statements, filler.
+- Split compound sentences joined by 'and' or 'but' into separate claims.
+- Do NOT infer or add information not explicitly stated.
+- Return ONLY a valid JSON array of strings. No preamble, no markdown backticks.
 
 Example input:
-  "Einstein, who was born in Germany in 1879, developed the theory of relativity and later moved to the United States."
-
+  "Einstein, born in Germany in 1879, developed relativity in 1905. He won the Nobel Prize in 1921."
 Example output:
-  ["Einstein was born in Germany.", "Einstein was born in 1879.", "Einstein developed the theory of relativity.", "Einstein moved to the United States."]
-"""
+  ["Einstein was born in Germany.", "Einstein was born in 1879.", "Einstein developed the theory of relativity in 1905.", "Einstein won the Nobel Prize in 1921."]
+
+Example input:
+  "Python was created in 1991. The language became popular for data science."
+Example output:
+  ["Python was created in 1991.", "Python became popular for data science."]"""
 
 
 class LLMExtractor:
