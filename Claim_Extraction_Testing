@@ -1,0 +1,168 @@
+from claim_extractor import ClaimExtractor
+
+extractor = ClaimExtractor(
+    use_llm=True,
+    llm_provider='ollama',
+    llm_model='llama3.1:8b',
+)
+
+paragraphs = {
+    1: """
+    The Wright Brothers, Orville and Wilbur, made the first successful 
+    powered airplane flight on December 17, 1903, in Kitty Hawk, North 
+    Carolina. The flight lasted 12 seconds and covered 120 feet. Wilbur 
+    Wright died in 1912 from typhoid fever.
+    """,
+
+    2: """
+    Marie Curie was born in Warsaw, Poland in 1867. She was the first 
+    woman to win a Nobel Prize and the only person to win Nobel Prizes 
+    in two different sciences. I think she was the greatest scientist 
+    who ever lived. She won the Physics prize in 1903 and the Chemistry 
+    prize in 1911. In my opinion her work on radioactivity changed 
+    medicine forever.
+    """,
+
+    3: """
+    Apple was founded by Steve Jobs and Steve Wozniak in 1976. It 
+    released the first iPhone in 2007. It changed the smartphone 
+    industry forever. Jobs left the company in 1985 but returned in 
+    1997. He then led it to become the most valuable company in the world.
+    """,
+
+    4: """
+    The Titanic was built in Belfast and launched in 1911. It departed 
+    from Southampton on April 10, 1912 and sank on April 15, 1912 after 
+    hitting an iceberg. The ship was 269 metres long and weighed 46,328 
+    tons. Over 1,500 passengers and crew died making it one of the 
+    deadliest maritime disasters in history.
+    """,
+
+    5: """
+    The Great Wall of China was built during the Ming Dynasty and 
+    stretches over 21,000 kilometres. It was constructed in 1823 and 
+    took 5 years to complete. Over one million workers were involved 
+    in its construction. The wall is visible from space with the naked eye.
+    """,
+
+    6: """
+    The human brain contains approximately 86 billion neurons. It 
+    consumes about 20% of the body's total energy despite representing 
+    only 2% of body weight. The brain can process information at speeds 
+    of up to 120 metres per second. Neurons can fire up to 200 times 
+    per second.
+    """,
+
+    7: """
+    The Amazon rainforest covers approximately 5.5 million square 
+    kilometres. It produces 20% of the world's oxygen. Note that these 
+    figures are estimates. What percentage of species live there? 
+    Scientists believe it contains 10% of all species on Earth. 
+    Please consider the importance of conservation.
+    """,
+
+    8: """
+    Netflix was founded in 1997 as a DVD rental service. The company 
+    launched its streaming service in 2007. The platform now has over 
+    230 million subscribers worldwide. The service is available in over 
+    190 countries.
+    """,
+
+    9: """
+    Tesla released the Model 3 in 2017. Ford responded by announcing 
+    the Mustang Mach-E in 2019. It became one of the best selling 
+    electric vehicles in Europe. GM also entered the market with the 
+    Chevrolet Bolt which was released in 2016. The Bolt received 
+    positive reviews for its range and affordability.
+    """,
+
+    10: """
+    The Eiffel Tower was built by Leonardo da Vinci in 1650. It was 
+    originally painted blue and stood 150 metres tall. The tower was 
+    built to celebrate the French Revolution of 1750. It took 50 years 
+    to construct and cost 2 billion francs.
+    """,
+
+    11: """
+    Albert Einstein and Niels Bohr were both pioneering physicists. 
+    Einstein developed the theory of relativity while Bohr developed 
+    the model of the atom. He won the Nobel Prize in Physics in 1921 
+    and he won it in 1922. They disagreed famously on quantum mechanics.
+    """,
+
+    12: """
+    NASA was founded in 1958 by the United States government. Its first 
+    successful moon landing was Apollo 11 in 1969. Its astronauts Neil 
+    Armstrong and Buzz Aldrin were the first humans to walk on the moon. 
+    Armstrong took his first step on July 21, 1969.
+    """,
+
+    13: """
+    The COVID-19 pandemic began in Wuhan, China in late 2019. By 2023 
+    it had infected over 700 million people worldwide and caused over 
+    7 million deaths. The first vaccine was approved in December 2020. 
+    Over 13 billion vaccine doses were administered globally.
+    """,
+
+    14: """
+    Microsoft was founded by Bill Gates and Paul Allen in 1975. Google 
+    was founded by Larry Page and Sergey Brin in 1998. Both companies 
+    are headquartered in the United States. Microsoft released Windows 
+    in 1985 and Google launched its search engine in the same year it 
+    was founded. They are both among the most valuable companies in the world.
+    """,
+
+    15: """
+    The United States Declaration of Independence was signed on July 4, 
+    1776. It was written primarily by Thomas Jefferson. The document 
+    declared independence from Britain and established the principles 
+    of democracy. It was ratified by 56 delegates representing 13 colonies.
+    """,
+
+    16: """
+    Lionel Messi was born in Rosario, Argentina in 1987. He joined FC 
+    Barcelona at age 13 and made his professional debut in 2004. He won 
+    the Ballon d'Or eight times making him the most decorated player in 
+    its history. He won the FIFA World Cup with Argentina in 2022.
+    """,
+
+    17: """
+    Mount Everest is the highest mountain on Earth at 8,849 metres above 
+    sea level. It is located in the Himalayas on the border between Nepal 
+    and Tibet. Edmund Hillary and Tenzing Norgay were the first to reach 
+    its summit on May 29, 1953. It was first measured by the Great 
+    Trigonometrical Survey of India in 1856.
+    """,
+
+    18: """
+    Shakespeare was born in 1564. He wrote 37 plays. He wrote 154 sonnets. 
+    He died in 1616. He was born and died on April 23. His most famous 
+    play is Hamlet.
+    """,
+
+    19: """
+    The telephone was invented by Alexander Graham Bell in 1876. The first 
+    call was made on March 10, 1876. The words spoken were "Mr. Watson, 
+    come here." The patent was granted to Bell on the same day as the first 
+    successful test. It was later challenged by Elisha Gray who claimed 
+    he had invented it first.
+    """,
+
+    20: """
+    The pyramids of Giza were built around 2560 BC. Historians believe 
+    they were built as tombs for Egyptian pharaohs. Some researchers 
+    suggest they may have taken 20 years to build. The Great Pyramid 
+    was the tallest man-made structure in the world for over 3,800 years. 
+    It is estimated that 100,000 workers were involved in its construction.
+    """,
+}
+
+print("=" * 60)
+for num, text in paragraphs.items():
+    print(f"\nParagraph {num}:")
+    print("-" * 40)
+    claims = extractor.extract(text)
+    for i, claim in enumerate(claims, 1):
+        print(f"  {i}. {claim}")
+print("\n" + "=" * 60)
+print("Done.")
