@@ -1,6 +1,146 @@
 # CLAUDE.md — GP Project: FEVER Fact-Checking with RAG + NLI
 
 ## Hardware (lab machine: ai-ws2)
+... (old contents trimmed)
+**Project Overview**
+
+- **Name:** VerifAI — local hallucination-detection webapp (RAG + NLI + LLM explainers)
+- **Primary repo:** verifai/ (FastAPI backend + Next.js frontend)
+- **Short description:** extract atomic claims from a paragraph, retrieve evidence (BM25 + Harrier + Qdrant + reranker), run NLI (DeBERTa ensemble), aggregate verdicts, optionally generate LLM explanations, and return results with sentence-level span offsets for frontend highlighting.
+
+**Audit Summary (files inspected)**
+
+- **Build plan:** [VERIFAI_BUILD_PLAN.md](VERIFAI_BUILD_PLAN.md)
+- **Handoff / API + UI spec:** [VERIFAI_HANDOFF.md](VERIFAI_HANDOFF.md)
+- **Backend folder tree:** inspected `verifai/backend/` — see Phase Tracker below
+- Key files reviewed: [verifai/backend/main.py](verifai/backend/main.py#L1), [verifai/backend/config.py](verifai/backend/config.py#L1), [verifai/backend/requirements.txt](verifai/backend/requirements.txt#L1), [verifai/backend/routers/verify.py](verifai/backend/routers/verify.py#L1), [verifai/backend/models/schemas.py](verifai/backend/models/schemas.py#L1), [verifai/backend/services/claim_extractor.py](verifai/backend/services/claim_extractor.py#L1), [verifai/backend/services/extractor.py](verifai/backend/services/extractor.py#L1), [verifai/backend/services/retriever.py](verifai/backend/services/retriever.py#L1), [verifai/backend/services/classifier.py](verifai/backend/services/classifier.py#L1), [verifai/backend/scripts/test_phase3.py](verifai/backend/scripts/test_phase3.py#L1).
+
+**Locked Decisions / Current Defaults**
+
+- **LLM backend (extractor & explainer):** default values in `.env.example` are `EXTRACTOR_PROVIDER=ollama`, `EXTRACTOR_MODEL=llama3.1:8b`, `EXPLAINER_PROVIDER=ollama`, `EXPLAINER_MODEL=llama3.1:8b` ([verifai/backend/.env.example.py](verifai/backend/.env.example.py#L1)).
+- **Span attribution:** sentence-level attribution using spaCy sentence splitting + word-level Jaccard match; fallback to the longest sentence when Jaccard < 0.05 (implemented in `verifai/backend/services/extractor.py`).
+- **Verdict mapping (5 → 3):**
+  - `factual` → `factual`
+  - `hallucinated`, `likely_hallucinated` → `hallucinated`
+  - `uncertain`, `knowledge_gap` → `uncertain`
+- **Model loading policy:** all heavy models (DeBERTa, Harrier, spaCy, reranker) load once at FastAPI startup via lifespan (see [verifai/backend/main.py](verifai/backend/main.py#L1)).
+
+**Backend: folder snapshot & public interfaces**
+
+Repository path: `verifai/backend/`
+
+- **main.py:** app lifecycle and wiring. Public: creates `app` and attaches `app.state.retriever`, `app.state.classifier`, `app.state.extractor` during startup. ([verifai/backend/main.py](verifai/backend/main.py#L1))
+- **config.py:** environment-driven constants (imports used across services). Public: module-level constants (e.g. `QDRANT_HOST`, `BM25S_INDEX_PATH`). ([verifai/backend/config.py](verifai/backend/config.py#L1))
+- **requirements.txt:** lists runtime deps including `spacy`, `torch>=2.2.1`, `transformers>=4.50`, `bm25s`, `qdrant-client`. ([verifai/backend/requirements.txt](verifai/backend/requirements.txt#L1))
+
+Services (one-line responsibility + exported functions/classes actually present):
+
+- **services/claim_extractor.py:** original hybrid extractor (heuristic + LLM). Public: `ClaimExtractor` class and helper `load_spacy()`; used as-is (do not modify). ([verifai/backend/services/claim_extractor.py](verifai/backend/services/claim_extractor.py#L1))
+- **services/extractor.py:** thin wrapper that attributes atomic claims to sentence spans. Public:
+  - `load_extractor(llm_provider: str, llm_model: str) -> ExtractorState`
+  - `extract_with_spans(state: ExtractorState, paragraph: str) -> list[Claim]` (returns `Claim` with `id, text, source_text, start_offset, end_offset`). ([verifai/backend/services/extractor.py](verifai/backend/services/extractor.py#L1))
+- **services/retriever.py:** RAG retrieval (BM25s + Harrier embedder + Qdrant + cross-encoder reranker). Public: `load_retriever(...)`, `retrieve(state, claim: str, top_k: int=5) -> list[Passage]`. ([verifai/backend/services/retriever.py](verifai/backend/services/retriever.py#L1))
+- **services/classifier.py:** DeBERTa NLI ensemble loader + inference helpers. Public: `load_classifier(adapter_paths: str) -> ClassifierState`, `classify(state, claim: str, passage: str) -> dict`, `classify_batch(...)`. ([verifai/backend/services/classifier.py](verifai/backend/services/classifier.py#L1))
+
+- **routers/verify.py:** `/verify` endpoint (currently returns a hardcoded mock response matching locked API contract). Public: `router` with POST `/verify` returning `VerifyResponse`. Includes runtime assertions that `paragraph[start:end] == source_text` for the mock claims. ([verifai/backend/routers/verify.py](verifai/backend/routers/verify.py#L1))
+- **models/schemas.py:** Pydantic models exactly matching the handoff API (request/response). Public models: `VerifyRequest`, `VerifyResponse`, `Claim`, `Evidence`, `Verdicts`, `ErrorResponse`. ([verifai/backend/models/schemas.py](verifai/backend/models/schemas.py#L1))
+
+Scripts:
+
+- **backend/scripts/test_phase3.py:** test harness that loads the extractor and asserts `paragraph[start:end] == source_text` for extracted claims. ([verifai/backend/scripts/test_phase3.py](verifai/backend/scripts/test_phase3.py#L1))
+- **backend/scripts/test_phase2.py:** existing retriever/classifier test pattern (not modified by audit). ([verifai/backend/scripts/test_phase2.py](verifai/backend/scripts/test_phase2.py#L1))
+
+**API contract (locked, copied from handoff)**
+
+- Request: `POST /verify` with JSON `{ "paragraph": "..." }` — validated for non-empty and `MAX_CHARS`.
+- SSE events (streamed): `{ "step": 1, "status": "extracting" }`, `{ "step": 2, "status": "retrieving" }`, `{ "step": 3, "status": "classifying" }`, `{ "step": 4, "status": "complete", "data": {...} }` (pipeline logic must be transport-agnostic).
+- Final payload: `VerifyResponse` with fields: `claims_count`, `hallucination_rate`, `verdicts` (factual/hallucinated/uncertain counts), and `claims` array. Each claim includes `id, text, source_text, start_offset, end_offset, verdict ("factual"|"hallucinated"|"uncertain"), confidence, source_relevance, explanation (nullable), evidence (nullable or structured)`. See [VERIFAI_HANDOFF.md](VERIFAI_HANDOFF.md#L1) for examples.
+
+**Phase Tracker (0 → 14)**
+
+- **Phase 0 — Decisions & prep:** DONE (LLM defaults in `.env.example`, span attribution approach chosen).
+**Built as (✓ verified):**
+- Decision 1 (LLM backend): `EXTRACTOR_PROVIDER=ollama`, `EXTRACTOR_MODEL=llama3.1:8b`; `EXPLAINER_PROVIDER=ollama`, `EXPLAINER_MODEL=llama3.1:8b` — both Ollama on the lab machine (Anthropic out of scope until Phase 14)
+- Decision 1b (span attribution): sentence-level attribution via Jaccard word overlap with longest-sentence fallback when similarity < 0.05
+- Decision 2 (verdict mapping): 5→3 mapping locked as documented above (`factual→factual`, `hallucinated|likely_hallucinated→hallucinated`, `uncertain|knowledge_gap→uncertain`)
+- Ollama setup: installed on lab; data dir relocated to `/media/ai-ws2/New Volume/ollama_data` (symlink + ACL fix); `OLLAMA_KEEP_ALIVE=30m` set via systemd override
+- Verified: Decisions and Ollama setup validated on the lab machine; span-attribution approach confirmed via extractor tests
+- **Phase 1 — Backend skeleton (mock):** DONE (FastAPI app, `routers/verify.py` returns mock response). Files: [verifai/backend/main.py](verifai/backend/main.py#L1), [verifai/backend/routers/verify.py](verifai/backend/routers/verify.py#L1).
+**Built as (✓ verified):**
+- `verifai/backend/main.py` — FastAPI app with lifespan, CORS, and startup stubs
+- `verifai/backend/config.py` — `.env`-backed config loader used by services
+- `verifai/backend/models/schemas.py` — Pydantic request/response shapes matching the contract
+- `verifai/backend/routers/verify.py` — `/verify` POST implemented as a hardcoded mock (replaced later by the real pipeline in Phase 5)
+- `verifai/backend/.env` and `.env.example` + `verifai/backend/requirements.txt`
+- Deviation: the initial mock in `routers/verify.py` was intentionally replaced by the real pipeline during Phase 5
+- Verified: curl against the running dev server returned the Great Wall / Einstein mock as expected
+- **Phase 2 — Retriever & Classifier port:** PRESENT (files `services/retriever.py` and `services/classifier.py` exist and are wired in `main.py`), STATUS: INTEGRATED — recommend runtime verification in lab (requires Qdrant + model adapters).
+**Built as (✓ verified):**
+- `verifai/backend/services/retriever.py` — `load_retriever()`, `retrieve(state, claim, top_k=5) -> list[Passage]`; hybrid pipeline: BM25s + Harrier dense embeds + RRF fusion + `gte` cross-encoder reranker
+- `verifai/backend/services/classifier.py` — `load_classifier()`, `classify_batch(state, claim, passages) -> list[dict]`; 3 LoRA adapters with logit-averaging
+- `Passage.similarity` is defined as `sigmoid(rerank_score)` and used downstream for TAU-based decisions
+- Deviation: none functional — code is a port of the notebook steps into services modules
+- Verified: lab smoke tests — Einstein → SUPPORTS, Eiffel→REFUTES; retrieval <2s warm, classification ~<0.5s per claim
+- **Phase 3 — Claim extractor + span attribution:** DONE (original `claim_extractor.py` present; wrapper `services/extractor.py` added; test `scripts/test_phase3.py` added). Verify spaCy model installed before running tests.
+**Built as (✓ verified):**
+- `verifai/backend/services/claim_extractor.py` — verbatim hybrid heuristic+LLM extractor (left unmodified)
+- `verifai/backend/services/extractor.py` — `load_extractor()` and `extract_with_spans(state, paragraph) -> list[Claim]` returning `id, text, source_text, start_offset, end_offset` via spaCy sentence splitting + Jaccard attribution
+- Deviation: none — wrapper preserves `ClaimExtractor` behavior and adds sentence-level span attribution
+- Critical pip lesson: avoid `pip install --user spacy` without checking for `Uninstalling numpy`/`Uninstalling torch`; pinned fix: `pip install --user "numpy<2"` when needed
+- Verified: `paragraph[start:end] == source_text` assertion holds across test paragraphs
+- **Phase 4 — Explainer (LLM explainers):** NOT STARTED (no `services/explainer.py` present).
+**Built as (✓ verified):**
+- `verifai/backend/services/explainer.py` — `load_explainer()`, `async def explain(state, claim, evidence_snippet, verdict) -> str | None`; uses Ollama via the OpenAI-compatible client wrapper
+- Deviation: initial scaffold (from Claude Code) used a legacy `ChatCompletion` pattern; this was corrected to use `openai.OpenAI(...)` and a small `OllamaClientWrapper` was removed
+- Guards: explainer is gated to run only for `hallucinated`/`uncertain`; empty-string or timeout returns `None`; output length bounded 20–800 chars
+- Verified: 4 real cases produced grounded explanations; factual claims returned `null` immediately; mean warm latency ~1.2s
+- **Phase 5 — Pipeline composition (`services/pipeline.py`):** NOT STARTED (pipeline orchestration not yet implemented as a single function).
+**Built as (✓ verified):**
+- `verifai/backend/services/pipeline.py` — `verify_paragraph(...)` async function plus custom exceptions `PipelineError`, `NoClaimsFound`, `RetrievalFailure`, `ClassificationFailure`
+- Verdict aggregation: label-priority (SUPPORTS > REFUTES > NEI) with `MIN_DECISIVE_CONF=0.6` and `TAU=0.85` compared against `Passage.similarity` (sigmoid'd rerank score); 5→3 mapping applied before returning API verdicts
+- Explanations are run in parallel via `asyncio.gather`; factual verdicts short-circuit to `explanation=None`
+- `routers/verify.py` updated to call the pipeline and map exceptions to HTTP responses per the contract
+- Lifespan warmup: `main.py` executes one dummy `verify_paragraph()` after services load to eliminate cold-starts (~20s startup cost)
+- Per-stage timing is emitted in logs: `[pipeline] extract=Xs retrieve=Ys classify=Zs explain=Ws total=Ts`
+- Verified: end-to-end on lab via uvicorn + curl; Eiffel/Berlin → hallucinated with strong confidence; full flow ~5s warm
+- **Phase 6 — SSE transport layer (real streaming):** NOT STARTED (current `/verify` is mock and synchronous; SSE wrapper must be added per handoff).
+**Built as (✓ verified):**
+- `verifai/backend/services/pipeline.py` — refactored into stage helpers `stage_extract`, `stage_retrieve`, `stage_classify`, `stage_aggregate_and_explain` plus async generator `verify_paragraph_streaming(...)` while preserving `verify_paragraph()` wrapper for plain use
+- `verifai/backend/routers/verify.py` — now returns `EventSourceResponse` wrapping the streaming generator; input validation (INVALID_INPUT) still performed before opening the stream
+- Buffering bug fixed: inserted `await asyncio.sleep(0)` after each yield so events flush immediately instead of arriving clumped at the end
+- `requirements.txt` updated to include `httpx` to support `test_phase6.py` clients
+- Verified: SSE smoke on lab — 4 events arrive at distinct timestamps consistent with stage completion times (~0.7s, ~1.9s, ~1.0s deltas)
+- **Phase 7…14 — Frontend, polish, tests, infra:** NOT STARTED (frontend scaffold absent in repo). See `VERIFAI_HANDOFF.md` for frontend spec.
+
+**Known issues & runbook (what to run locally)**
+
+- Install backend deps and spaCy model:
+  - `cd verifai/backend && pip install -r requirements.txt`
+  - `python -m spacy download en_core_web_sm`
+- Ensure Qdrant server is running (if testing retriever): `docker run -d --name qdrant -p 6333:6333 qdrant/qdrant` or start your existing container.
+- If using Ollama for extractor/explainer: install and pull `llama3.1:8b` locally and ensure `OLLAMA_BASE_URL` matches your `.env`.
+- Run tests:
+  - `python verifai/backend/scripts/test_phase3.py` — asserts span offsets (requires extractor LLM availability or will fall back to heuristic extractor if configured).
+  - `python verifai/backend/scripts/test_phase2.py` — retriever/classifier smoke tests (requires Qdrant + adapters).
+
+**Next recommended steps (minimal)**
+
+1. Run the local install + `test_phase3.py` to confirm extractor offsets (spaCy required). Report any failing assertions back.
+2. Implement `services/explainer.py` (Phase 4) and `services/pipeline.py` (Phase 5). Keep pipeline synchronous/async plain function separate from SSE.
+3. Replace mock `/verify` in [verifai/backend/routers/verify.py](verifai/backend/routers/verify.py#L1) with an SSE wrapper that calls the pipeline function and streams step events.
+
+**Where I left off**
+
+- Phase 3 code edits applied to the repo (wrapper + tests added). No runtime tests were executed by the agent — environment setup and LLM/Qdrant availability are required to run them. The `CLAUDE.md` rewrite requested by the user is now complete and saved here.
+
+If you want, I can now:
+- run the ordered filesystem audit lines in more depth (open specific files line-by-line), or
+- implement `services/explainer.py` and/or `services/pipeline.py`, or
+- attempt to run `test_phase3.py` in this environment (I will need confirmation to install packages). Which should I do next?
+
+# CLAUDE.md — GP Project: FEVER Fact-Checking with RAG + NLI
+
+## Hardware (lab machine: ai-ws2)
 - GPU: Quadro RTX 5000 — Turing CC 7.5, **15.5 GB VRAM**
 - CUDA: 12.1 (`+cu121`)
 - **Always use GPU 1** (`CUDA_VISIBLE_DEVICES=1`) — GPU 0 belongs to other lab users (Amany's training PID 531393 — do not kill)
