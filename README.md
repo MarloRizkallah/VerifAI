@@ -10,7 +10,7 @@ Fine-tuned DeBERTa-v3-large + LoRA ensemble on 157,089 FEVER claim–evidence pa
 
 | Split | Macro-F1 | Accuracy |
 |---|---|---|
-| Validation (ensemble) | 0.9680 | — |
+| Validation (ensemble) | 0.9680 | 0.9721 |
 | **Test (held-out)** | **0.9547** | **0.9548** |
 
 *Note: these metrics reflect per-pair NLI classifier performance, not end-to-end hallucination detection.*
@@ -41,6 +41,28 @@ End-to-end retrieval-augmented verification pipeline. Covers:
 Full-stack web app. FastAPI backend with SSE streaming serves the complete pipeline as an API. Next.js frontend renders a highlighted paragraph with per-claim verdict cards, confidence bars, Wikipedia evidence snippets, and LLM-generated explanations for flagged claims.
 
 ---
+
+
+# VerifAI
+
+## Home Page
+
+![Home Page](VerifAI_homepage.png)
+
+
+## Input
+
+![User's_Input](VerifAI_input.png)
+
+## Stages
+
+![VerifAI_Stages](VerifAI_stages.png)
+
+## Results
+
+![VerifAI_Results](VerifAI_Demo.png)
+
+
 
 ## Tech Stack
 
