@@ -4,6 +4,12 @@
 
 ---
 
+## System Architecture
+
+![VerifAI System Architecture](final-design_VerifAI.png)
+
+---
+
 ## NLI Model Performance
 
 Fine-tuned DeBERTa-v3-large + LoRA ensemble on 157,089 FEVER claim–evidence pairs (3 seeds).
